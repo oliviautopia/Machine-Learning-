@@ -1,4 +1,3 @@
-# Machine-Learning-
 ---
 title: "Machine Learning Project"
 output: html_document
@@ -90,6 +89,7 @@ fancyRpartPlot(mTree$finalModel)
 AcuraTrain=confusionMatrix(predict(mTree,subTrain), subTrain$classe)$overall['Accuracy'] 
 AcuraTrain       
 AcuraTest=confusionMatrix(predict(mTree,subTest)  , subTest$classe)$overall['Accuracy']
+confusionMatrix(predict(mTree,subTest)  , subTest$classe)
 AcuraTest        
 pTree=predict(mTree,test)
 ```
@@ -133,9 +133,8 @@ predDF <- data.frame(pT,pL,y=subTest$classe)
 model <- train(y ~.,method="rf",data=predDF)
 Pred <- predict(model,predDF)
 confusionMatrix(Pred,subTest$classe)$overall['Accuracy']       # Accuracy: 0.7204
-pCombo=predict(model,test)
+confusionMatrix(Pred,subTest$classe)
 ```
-
 ##### step5. [>_<]/My final classificaiton model
 ##### To sum up, the accuracy rates of 3 models as followings:
 ##### 1) For tree : Accuracy(subtrain)= 0.4947   ;
@@ -146,17 +145,38 @@ pCombo=predict(model,test)
 ##### 3) For tree & Linear combined model:
                     Accuracy(subtest)= 0.7204
 ##### The good thing is that the accuracy on subtest is better than that on subtrain. However, even the hightes accuracy on the combined model is not good enough, only at 72%.
-##### Moreover, due to the weak prediction of tree model, i use the second and third model to make a prediction on test set. And the following are the result. And the left one is linear discrimination model and right one is combined model. 
+##### Moreover, due to the weak prediction of tree model, i use the second and third model to make a prediction on test set. And the following are the result. And the left one is linear discrimination model and right one is Tree model. 
 ```{r,echo=T}
 library(ggplot2);library(gridExtra)
-dat=data.frame(pLds,pCombo)
+dat=data.frame(pTree,pLds)
 g2=ggplot(dat, aes(pLds,fill=pLds))+geom_histogram()
-g2=g2+xlab("Classe Levels for Test ")+ylab("Frequency Test")+title("Prediction of LDS Model ");g2
+g2=g2+xlab("Classe Levels, LDS Model ")+ylab("Frequency LDS Model");g2
 
-g3=ggplot(dat, aes(pCombo,fill=pCombo))+geom_histogram()
-g3=g3+xlab("Classe Levels for Test ")+ylab("Frequency Test")+title("Prediction of Combined Model ");g3
+g3=ggplot(dat, aes(pTree,fill=pTree))+geom_histogram()
+g3=g3+xlab("Classe Levels, Tree Model")+ylab("Frequency Tree");g3
 grid.arrange(g2,g3,ncol=2)
+
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
