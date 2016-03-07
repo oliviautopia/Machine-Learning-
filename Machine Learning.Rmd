@@ -5,7 +5,7 @@ output: html_document
 ### **Project**
 ####  In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
 ### **Project by Olivia**
-#### 1. Introduction to dataset ( training and testing )
+#### Part 1. Introduction to dataset ( training and testing )
 ##### step1: Import Training Data 
 ```{r,echo=T}
 setwd('/Users/apple/Desktop/Cousera/Data Science/4.Machine Learning JHopkins')
@@ -47,25 +47,38 @@ train=train[,-c(1:7)]
 test =test[,-c(1:7)]
 ```
 ##### Second, Delete columns with all missing values.
-##### 
 ```{r,echo=T}
 train<-train[,colSums(is.na(train)) == 0]
 test <-test[,colSums(is.na(test)) == 0]
 all.equal(colnames(train),colnames(test))
 dim(train);dim(test)
 ```
-##### \(^_^)/ Now, there are 53 features in both our training set and testing test. And we should find reasonable and efficient ways in training set to classify the 'Classe' and then utilize this method to label the testing set, which has no 'classe' feature. 
-##### Thus, in order to better classify the 'classe'with higher accuracy, we need partition the training test to subtrain test and subtest set. Then both sets have 'classe' feature, we can make comparison according to model accuracy among different models.
+##### Third, Using PCA to reduce the colinearity among our 53 features.
+```{r,echo=T}
+which(colnames(train)=='classe')       # 53
+which(colnames(test)=='problem_id')    # 53
+library(caret)
+PCA<- preProcess(train[,-53],method="pca")
+TrainPca <- predict(PCA,train[,-53])
+TrainPca$classe=train$classe        
+dim(TrainPca)
+TestPca <- predict(PCA,train[,-53])
+dim(TestPca) 
+# PCA needed 25 components to capture 95 percent of the variance
+```
+##### Now, I shrink 53 features in training set into 25 PCA and 1 response variables-'classe'.
 ##### step5 : Partition the training set
 ##### Considering that there is no 'classe' feature in test set, we should assign more data to subtest set, which can provide more reliable validation on prediction.
-##### In order to perform cross validation,  we set the subtrain set ( 60 % ) and subtest ( 40% ) 
+##### In order to perform cross validation,  I devided the training set as subtrain set ( 60 % ) and subtest ( 40% ).
+4
 ```{r,echo=T}
 library(caret)
-sub <- createDataPartition(y=train$classe, p=0.6, list=FALSE)
-subTrain <- train[sub, ] 
-subTest <- train[-sub, ]
+sub <- createDataPartition(y=TrainPca$classe, p=0.6, list=FALSE)
+subTrain <- TrainPca[sub, ] 
+subTest <- TrainPca[-sub, ]
 dim(subTrain)
 dim(subTest)
+head(subTrain,3)
 ```
 ##### After partitioning our training set, now both subtrain and subtest sets have the 'classe' feature. Another question is : Whether 'classe' in both set has the same distribution? 
 ##### The left one shows you 'classe' in subtrain and the right one is in subtest. The follwing 2 graphs show us the weight among A,B,C,D,E is around the same in both subtrain and subtest.
@@ -73,13 +86,13 @@ dim(subTest)
 ```{r,echo=T}
 library(ggplot2);library(gridExtra)
 g1=ggplot(subTrain, aes(classe,fill=classe))+geom_histogram(binwidth=1)
-g1=g1+xlab("Classe Levels for Subtrain ")+ylab("Frequency Subtrain ");g1
+g1=g1+xlab("Classe Levels for Subtrain ")+ylab("Frequency Subtrain ")
 g2=ggplot(subTest, aes(classe,fill=classe))+geom_histogram(binwidth=1)
-g2=g2+xlab("Classe Levels for Subtest ")+ylab("Frequency Subtest");g2
+g2=g2+xlab("Classe Levels for Subtest ")+ylab("Frequency Subtest")
 grid.arrange(g1,g2,ncol=2)
 ```
 
-#### 2. Classification model
+#### Part 2. Classification with subtraining and subtesing 
 ##### step1. Predictin with Trees
 ```{r,echo=T}
 mTree=train(classe~., data=subTrain,method='rpart')
@@ -91,8 +104,30 @@ AcuraTrain
 AcuraTest=confusionMatrix(predict(mTree,subTest)  , subTest$classe)$overall['Accuracy']
 confusionMatrix(predict(mTree,subTest)  , subTest$classe)
 AcuraTest        
-pTree=predict(mTree,test)
 ```
+##### After using PCA, The accuracy of tree is so bad!
+##### How about we partition original training set without PCA, and still use tree classification.
+```{r,echo=T}
+library(caret)
+control=trainControl(method = "cv", number = 7)
+sub2 <- createDataPartition(y=train$classe, p=0.6, list=FALSE)
+subTrain2 <- train[sub2, ] 
+subTest2 <- train[-sub2, ]
+dim(subTrain2)
+dim(subTest2)
+head(subTrain2,3)
+mTree2=train(classe~., data=subTrain2,trControl=control,method='rpart')
+library(rpart.plot)
+library(rattle)
+fancyRpartPlot(mTree2$finalModel)
+AcuraTrain=confusionMatrix(predict(mTree2,subTrain2), subTrain2$classe)$overall['Accuracy'] 
+AcuraTrain       
+AcuraTest=confusionMatrix(predict(mTree2,subTest2)  , subTest2$classe)$overall['Accuracy']
+confusionMatrix(predict(mTree2,subTest2)  , subTest2$classe)
+```
+##### To sum up, using Tree Classification for our trainingset, the accuracy is higher if we did not utilize PCA to our orginal training data.
+##### Since Tree Classification did not provide me with the high accuracy, I use the Linear Discrimination Model to test.
+
 ##### step2. Predicting using Linear Discrimination
 ```{r,echo=T}
 mLds=train(classe~., data=subTrain,method='lda',verbose=F)
@@ -100,76 +135,91 @@ AcuraTrain=confusionMatrix(predict(mLds,subTrain), subTrain$classe)$overall['Acc
 AcuraTrain          
 AcuraTest=confusionMatrix(predict(mLds,subTest)  , subTest$classe)$overall['Accuracy']
 AcuraTest           
-pLds=predict(mLds,test)
+confusionMatrix(predict(mLds,subTest)  , subTest$classe)
+pLds=predict(mLds,TestPca)
 ```
-##### step3. Unsupervised Prediction
-##### Becase we know in advance that classe has 5 levels, thus after deleting the classe feature, we cluster all the features into 5 clusters.
-```{r}
-# 1. clustering our 52 features into 5 clusters.
-#kMeans1 <- kmeans(subset(subTrain,select=-c(classe) ),centers=5   )
-#subTrain$cluster <- as.factor(kMeans1$cluster)
-# 2. Compare to real labels
-#table(subTrain$cluster,subTrain$classe)
-# 3. Build predictor
-#modFit <- train(clusters ~.,data=subset(subTrain,select=-c(classe)),method="rpart")
-#confusionMatrix(predict(modFit,subTrain),subTrain$classe)$overall['Accuracy']
-# 4. Apply on subtest
-#confusionMatrix(predict(modFit,subTest),subTest$classe)$overall['Accuracy']
-# 5. Predict on test
-#pCluster=predict(modFit,test)
+##### The linear discrimination model still gets bad classification on dataset after PCA.The accuracy is only 50%.
+##### How about we partition original training set without PCA, and still use tree classification.
+```{r,echo=T}
+library(caret)
+sub2 <- createDataPartition(y=train$classe, p=0.6, list=FALSE)
+subTrain2 <- train[sub2, ] 
+subTest2 <- train[-sub2, ]
+dim(subTrain2)
+dim(subTest2)
+head(subTrain2,3)
+m2=train(classe~., data=subTrain2,method='lda')
+AcuraTrain=confusionMatrix(predict(m2,subTrain2), subTrain2$classe)$overall['Accuracy'] 
+AcuraTrain       
+AcuraTest =confusionMatrix(predict(m2,subTest2) , subTest2$classe)$overall['Accuracy']
+confusionMatrix(predict(m2,subTest2)  , subTest2$classe)
 ```
-##### Now, we know that the unsupervised learning is not suitable for every classification. 
-
-##### step4. Ensembling all the 3 methods together
-##### 1). Predict on the subtest set
-##### pTree : prediction on subtest set using Tree Model.
-##### pRf   : prediction on subtest set using Random Forest Model.
-##### 2). Fit a model that combines predictors
+##### step3. Generalized Boosted Regression Models
+##### From this step, I decided to use 7 folds cross-validation to my subtraining dataset. 
+```{r,echo=T}
+control=trainControl(method = "cv", number = 7)
+```
 
 ```{r,echo=T}
-pT=predict(mTree,subTest)
-pL=predict(mLds,subTest)
-predDF <- data.frame(pT,pL,y=subTest$classe)
-model <- train(y ~.,method="rf",data=predDF)
-Pred <- predict(model,predDF)
-confusionMatrix(Pred,subTest$classe)$overall['Accuracy']       # Accuracy: 0.7204
-confusionMatrix(Pred,subTest$classe)
+library(gbm); library(survival)
+mGbm=train(classe~., data=subTrain,method='gbm',trControl=control,verbose=F)
+AcuraTrain=confusionMatrix(predict(mGbm,subTrain), subTrain$classe)$overall['Accuracy'] 
+AcuraTrain          
+AcuraTest=confusionMatrix(predict(mGbm,subTest)  , subTest$classe)$overall['Accuracy']
+AcuraTest           
+confusionMatrix(predict(mGbm,subTest),subTest$classe)
 ```
-##### step5. [>_<]/My final classificaiton model
-##### To sum up, the accuracy rates of 3 models as followings:
-##### 1) For tree : Accuracy(subtrain)= 0.4947   ;
-                    Accuracy(subtest) = 0.4960   
-##### 2) For linear discrimination model:
-                    Accuracy(subtrain)= 0.7053   ;
-                    Accuracy(subtest) = 0.7064
-##### 3) For tree & Linear combined model:
-                    Accuracy(subtest)= 0.7204
-##### The good thing is that the accuracy on subtest is better than that on subtrain. However, even the hightes accuracy on the combined model is not good enough, only at 72%.
-##### Moreover, due to the weak prediction of tree model, i use the second and third model to make a prediction on test set. And the following are the result. And the left one is linear discrimination model and right one is Tree model. 
+##### I am so happy >_< ! After using PCA to training set and use 7 fold cross validation, my General Boosting Model can predict the classe on subtest set with accuracy 82%. 
+#####  How about GBM on training set without PCA?
 ```{r,echo=T}
+dim(subTrain2); dim(subTest2)
+m2=train(classe~., data=subTrain2,method='gbm',trControl=control,verbose=F)
+AcuraTrain=confusionMatrix(predict(m2,subTrain2), subTrain2$classe)$overall['Accuracy'] 
+AcuraTrain       
+AcuraTest =confusionMatrix(predict(m2,subTest2) , subTest2$classe)$overall['Accuracy']
+AcuraTest
+```
+##### Now, Gerneral Boosting Model on training set (without PCA) has prediction accuracy as 96% on both subtraining set and subtesting set. It is the best model I have.
+
+##### Combined the Linear Discrimination,Tree Model and General Boosting Model, I can get 3 conclusions:
+##### (1). The PCA did not help improve the accuracy of our prediction.
+##### (2). For dataset without PCA, the rank among my models is : 
+           GBM ( 96% ) > LDS ( 70% ) > Tree( 50% ).
+           For dataset with PCA, the rank among my models is : 
+           GBM ( 82% ) > LDS ( 53% ) > Tree( 38% ).
+##### (3). Model selection can significantly improve the accuracy of prediction.
+           General Boosting Model is the best model for this classification.
+           
+##### step4. [>_<]/My final classificaiton model: The GBM model without PCA.
+##### The prediction built on GBM model and LDS model. 
+```{r,echo=T}
+pGbm=predict(m2,subTest2) 
 library(ggplot2);library(gridExtra)
-dat=data.frame(pTree,pLds)
-g2=ggplot(dat, aes(pLds,fill=pLds))+geom_histogram()
-g2=g2+xlab("Classe Levels, LDS Model ")+ylab("Frequency LDS Model");g2
-
-g3=ggplot(dat, aes(pTree,fill=pTree))+geom_histogram()
-g3=g3+xlab("Classe Levels, Tree Model")+ylab("Frequency Tree");g3
-grid.arrange(g2,g3,ncol=2)
-
+dat=data.frame(pGbm,y=subTest2$classe)
+dat$true=(pGbm==subTest2$classe)
+g1=ggplot(dat, aes(pGbm,fill=pGbm))+geom_histogram()
+g1=g1+xlab("Classe Levels, GBM Model ")+ylab("Frequency GBM Model")
+g2=ggplot(dat, aes(y,fill=y))+geom_histogram()
+g2=g2+xlab("Classe Levels, subTest")+ylab("Frequency subTest")
+grid.arrange(g1,g2,ncol=2)
+qplot(dat$pGbm,fill=dat$true,alpha=0.4)+xlab('The prediction Value from GBM model')
+```
+#### Part 3. Prediction on test sets
+##### This graph show you my classification for the 20 test points.
+```{r,echo=T}
+pred=predict(m2,test);pred
+g=qplot(c(1:20),pred,col=as.factor(pred),size=15)
+g=g+xlab('The serial number of test')+ ylab('The prediction result');
+g
 ```
 
+```{r}
+library(markdown)
+library(knitr)
+result <- rpubsUpload(title='Machine',htmlFile='/Users/apple/Desktop/Cousera/Data Science/4.Machine Learning JHopkins/Machine.html',method=getOption('rpubs.upload.method','auto'))
+result
 
-
-
-
-
-
-
-
-
-
-
-
+```
 
 
 
