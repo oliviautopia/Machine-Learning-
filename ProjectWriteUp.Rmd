@@ -1,0 +1,197 @@
+---
+output: html_document
+---
+##**Project by Olivia**  
+In this project, my goal is to build a prediction algorithem based on "train.csv" to better forcast the "classe" value of "test.csv".In part 1, I have use PCA to shrink the number of predictors from 160 to 52. In part 2, i introduced 1) Tree 2) Linear Discrimination 3) General Boosting algorithem to build my model. And I found that:1) PCA did not help improve the accuracy of our prediction.(2).For dataset without PCA and with PCA, the rank among my models is : GBM > LDS > Tree.  Finaly, I used GBM model to forcast the value of classe on testing set is: B A B A A E D B A A B C B A E E A B B B  
+
+###**Part 1. Introduction to dataset** ( training and testing )
+```{r,echo=T}
+library(ggplot2);library(caret);library(caret);library(gridExtra);library(rpart.plot);
+library(rattle);library(gbm); library(survival);require(MASS);require(plyr);require(knitr)
+f1=download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv',
+                 destfile = '/Users/apple/Desktop/Cousera/Data Science/4.Machine Learning JHopkins/train.csv',method='curl')
+train=read.csv('train.csv',na.strings=c("NA","#DIV/0!", ""))
+
+f2=download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv',
+                 destfile = '/Users/apple/Desktop/Cousera/Data Science/4.Machine Learning JHopkins/test.csv',method='curl')
+test=read.csv('test.csv',na.strings=c("NA","#DIV/0!", ""))
+
+dim(train); dim(test)
+```
+1.Training dataset : 19622 observations and 160 features.  
+2.Testing dataset  : 20 observations and 160 features.  
+3.Variable'classe' : 5 levels: A, B, C, D , E.   
+4.Features(Reducing irrelavant variables)  
+(1)Are the features in training set are the same with testing set? If not, which features are not the same?
+```{r,echo=T,results='hide'}
+all.equal(colnames(train),colnames(test))                 # "1 string mismatch"
+(colnames(train))[which(colnames(train)!=colnames(test))] # "classe"
+(colnames(test))[which(colnames(train)!=colnames(test))]  # "problem_id"
+```
+(2)Which featrues are correlated to 'Classe'?  
+First, I delete the first 7 columns, they are irrelavant to the 'Classe'  
+```{r,echo=T}
+train=train[,-c(1:7)];test =test[,-c(1:7)]
+```
+Second, Delete columns with all missing values. Then we will have 53 non-missing features.  
+```{r,echo=T,results='hide'}
+train<-train[,colSums(is.na(train)) == 0]; test <-test[,colSums(is.na(test)) == 0]
+which(colnames(train)=='classe');which(colnames(test)=='problem_id')     # 53
+```
+Third, Using PCA to reduce the colinearity among our 53 features.  
+```{r,echo=T,results='hide',fig.align='center'}
+PCA<- preProcess(train[,-53],method="pca") 
+TrainPca <- predict(PCA,train[,-53])   ;   TestPca <- predict(PCA,test[,-53])
+TrainPca$classe=train$classe             # dim(TrainPca)  dim(TestPca) 
+#Finally, after cleaning data, I have 25 PCA, 52 predictors and 1 response 'classe'.  
+```
+5.Partition the training set: subtrain set as 11776 obs(60%) and subtest as 7846 obs(40%).
+```{r,echo=T,results='hide'}
+sub <- createDataPartition(y=TrainPca$classe, p=0.6, list=FALSE)
+subTrain <- TrainPca[sub, ]     ;    subTest <- TrainPca[-sub, ]
+```
+6.After partitioning training set,another question is : Whether 'classe' in both set has the same distribution?   
+```{r,echo=T,fig.width=12,fig.height=2.2}
+# The following histogram show you the distribution of 'classe' in training dataset. 
+g1=ggplot(train, aes(classe,fill=classe))+geom_histogram(binwidth=1)
+g1=g1+xlab("Classe in Training ")+ylab("Frequency ")
+g2=ggplot(subTrain, aes(classe,fill=classe))+geom_histogram(binwidth=1)
+g2=g2+xlab("Classe in SubTrain ")+ylab("Frequency")
+g3=ggplot(subTest, aes(classe,fill=classe))+geom_histogram(binwidth=1)
+g3=g3+xlab("Classe in SubTest ")+ylab("Frequency")
+grid.arrange(g1,g2,g3,ncol=3)
+```    
+The above 2 graphs show us the weight among A,B,C,D,E is around the same in both subtrain and subtest.Thus it is relible that we validate our classification model(buillt by subtrain) ,on subtest set.  
+
+###**Part 2. Classification** with subtraining and subtesting data 
+**1.1 Prediction with Trees, using PCA**
+```{r,echo=T,message=FALSE}
+control=trainControl(method ="cv",number=7)
+mTree=train(classe~.,data=subTrain,trControl=control,method='rpart')
+a1=confusionMatrix(predict(mTree,subTrain), subTrain$classe)$overall['Accuracy']
+a2=confusionMatrix(predict(mTree,subTest) , subTest$classe)$overall['Accuracy'] 
+```
+**1.2. Prediction with Trees,without PCA**
+```{r,echo=T,fig.align='left',fig.height=3,fig.width=8}
+sub2<-createDataPartition(y=train$classe,p=0.6,list=F)
+subTrain2 <- train[sub2, ] ; subTest2 <- train[-sub2, ]
+mTree2=train(classe~., data=subTrain2,trControl=control,method='rpart')
+b1=confusionMatrix(predict(mTree2,subTrain2),subTrain2$classe)$overall['Accuracy']
+b2=confusionMatrix(predict(mTree2,subTest2),subTest2$classe)$overall['Accuracy']  
+fancyRpartPlot(mTree2$finalModel,sub='Tree without PCA')
+```
+To sum up, Tree without PCA has accuracy 0.4959 in subtest set, higher than that with PCA(0.3776).   
+**2.1 Prediction using Linear Discrimination, with PCA**
+```{r,echo=T,message=F}
+mLds=train(classe~., data=subTrain,trControl=control,method='lda',verbose=F)
+c1=confusionMatrix(predict(mLds,subTrain), subTrain$classe)$overall['Accuracy']# Accuracy(subTrain)
+c2=confusionMatrix(predict(mLds,subTest)  , subTest$classe)$overall['Accuracy'] # Accuracy(subTest)
+```
+**2.2 Prediction using Linear Discrimination, without PCA**
+```{r,echo=T,message=F}
+mLds2=train(classe~., data=subTrain2,trControl=control,method='lda')
+d1=confusionMatrix(predict(mLds2,subTrain2), subTrain2$classe)$overall['Accuracy']
+d2=confusionMatrix(predict(mLds2,subTest2) , subTest2$classe)$overall['Accuracy']
+```
+**3.1 Prediction using Generalized Boosted Regression Model, with PCA**
+```{r,echo=T}
+mGbm=train(classe~., data=subTrain,method='gbm',trControl=control,verbose=F)
+f1=confusionMatrix(predict(mGbm,subTrain), subTrain$classe)$overall['Accuracy'];# Accuracy(subTrain)
+f2=confusionMatrix(predict(mGbm,subTest)  , subTest$classe)$overall['Accuracy'] # Accuracy(subTest)
+```
+**3.2 Prediction using Generalized Boosted Regression Model, without PCA**
+```{r,echo=T}
+mGbm2=train(classe~., data=subTrain2,method='gbm',trControl=control,verbose=F)
+g1=confusionMatrix(predict(mGbm2,subTrain2), subTrain2$classe)$overall['Accuracy']
+g2=confusionMatrix(predict(mGbm2,subTest2) , subTest2$classe)$overall['Accuracy'] 
+confusionMatrix(predict(mGbm2,subTest2),subTest2$classe)
+```
+**Summary**
+* Combined Tree, LDS and GBM together, I got 3 conclusions:  
+(1). The PCA did not significantly improve the accuracy of our prediction on subtesting set.  
+(2). For dataset without PCA, the rank among my models is :   
+  GBM ( 96% ) > LDS ( 70% ) > Tree( 50% ).  
+For dataset with PCA, the rank among my models is :   
+  GBM ( 82% ) > LDS ( 53% ) > Tree( 38% ).  
+(3). Model selection can significantly improve the accuracy of prediction.  
+(4). General Boosting Model is the best model for this classification.  
+
+**4. Visualize the Prediction of Different Model**  
+
+```{r,echo=T,fig.height=4,fig.width=12,fig.align='left'}   
+pTree=predict(mTree,subTest) ; pTree2=predict(mTree2,subTest2) 
+pLds=predict(mLds,subTest)   ; pLds2=predict(mLds2,subTest2) 
+pGbm=predict(mGbm,subTest)   ; pGbm2=predict(mGbm2,subTest2) 
+dat=data.frame(pTree,pTree2,pLds,pLds2,pGbm,pGbm2,y=subTest2$classe)
+dat$t1=(pTree==subTest$classe);dat$t2=(pTree2==subTest2$classe);dat$t3=(pLds==subTest$classe)
+dat$t4=(pLds2==subTest2$classe);dat$t5=(pGbm==subTest$classe);  dat$t6=(pGbm2==subTest2$classe)
+g1=ggplot(dat, aes(pTree, fill=t1,alpha=0.5))+geom_histogram()+xlab("Prediction:Tree with PCA")
+g2=ggplot(dat, aes(pLds,  fill=t3,alpha=0.5))+geom_histogram()+xlab("Prediction:Lds with PCA")
+g3=ggplot(dat, aes(pGbm,  fill=t5,alpha=0.5))+geom_histogram()+xlab("Prediction:Gbm with PCA")
+g4=ggplot(dat, aes(pTree2,fill=t2,alpha=0.5))+geom_histogram()+xlab("Prediction:Tree without PCA")
+g5=ggplot(dat, aes(pLds2, fill=t4,alpha=0.5))+geom_histogram()+xlab("Prediction:Lds without PCA")
+g6=ggplot(dat, aes(pGbm2, fill=t6,alpha=0.5))+geom_histogram()+xlab("Prediction:Gbm without PCA")
+grid.arrange(g1,g2,g3,g4,g5,g6,ncol=3)
+```
+
+###**Part 3. Prediction on Test Sets**  
+**1. Accuracy on SubTrain Sets**  
+```{r,echo=T}
+T11=confusionMatrix(predict(mTree,subTrain), subTrain$classe)$overall['Accuracy'];
+T21=confusionMatrix(predict(mTree2,subTrain2),subTrain2$classe)$overall['Accuracy'];
+T12=confusionMatrix(predict(mLds,subTrain), subTrain$classe)$overall['Accuracy'];
+T22=confusionMatrix(predict(mLds2,subTrain2), subTrain2$classe)$overall['Accuracy'];
+T13=confusionMatrix(predict(mGbm,subTrain), subTrain$classe)$overall['Accuracy'];
+T23=confusionMatrix(predict(mGbm2,subTrain2), subTrain2$classe)$overall['Accuracy']
+Train=round( data.frame(Tree=c(T11,T21),Lds=c(T12,T22),GBM=c(T13,T23)),3)
+row.names(Train)=c("PCA","WithoutPCA")
+kable(Train)
+```
+
+**2. Accuracy on SubTest Sets**  
+```{r,echo=T}
+t11=confusionMatrix(predict(mTree,subTest) , subTest$classe)$overall['Accuracy']
+t21=confusionMatrix(predict(mTree2,subTest2),subTest2$classe)$overall['Accuracy']
+t12=confusionMatrix(predict(mLds,subTest)  , subTest$classe)$overall['Accuracy']
+t22=confusionMatrix(predict(mLds2,subTest2) , subTest2$classe)$overall['Accuracy']
+t13=confusionMatrix(predict(mGbm,subTest)  , subTest$classe)$overall['Accuracy']
+t23=confusionMatrix(predict(mGbm2,subTest2) , subTest2$classe)$overall['Accuracy']
+Test=round( data.frame(Tree=c(t11,t21),Lds=c(t12,t22),GBM=c(t13,t23)) ,3)
+row.names(Test)=c("PCA","WithoutPCA")
+kable(Test)
+```
+```{r,echo=T,fig.height=3,fig.align='center',fig.width=4}
+# This graph show you my classification for the 20 test points.
+pred=predict(mGbm2,test)
+qplot(c(1:20),pred,col=as.factor(pred),size=15)+xlab('Observation of test')+ylab('Prediction')
+pred
+```  
+###**Part 4. Out of Sample Error**  
+**In Sameple Errors are errors by applying algorithem model built by subtrain set to itself.** 
+
+```{r,echo=T}
+In11=1-confusionMatrix(predict(mTree,subTrain), subTrain$classe)$overall['Accuracy'];
+In21=1-confusionMatrix(predict(mTree2,subTrain2),subTrain2$classe)$overall['Accuracy'];
+In12=1-confusionMatrix(predict(mLds,subTrain), subTrain$classe)$overall['Accuracy'];
+In22=1-confusionMatrix(predict(mLds2,subTrain2), subTrain2$classe)$overall['Accuracy'];
+In13=1-confusionMatrix(predict(mGbm,subTrain), subTrain$classe)$overall['Accuracy'];
+In23=1-confusionMatrix(predict(mGbm2,subTrain2), subTrain2$classe)$overall['Accuracy']
+InErr=round( data.frame(Tree=c(In11,In21),Lds=c(In12,In22),GBM=c(In13,In23)),3)
+row.names(InErr)=c("PCA","WithoutPCA")
+kable(InErr)
+```
+
+**Out Sample Errors are errors by applying algorithem model built by subtrain set to subtest set.**  
+```{r,echo=T}
+Out11=1-confusionMatrix(predict(mTree,subTest) , subTest$classe)$overall['Accuracy']
+Out21=1-confusionMatrix(predict(mTree2,subTest2),subTest2$classe)$overall['Accuracy']
+Out12=1-confusionMatrix(predict(mLds,subTest)  , subTest$classe)$overall['Accuracy']
+Out22=1-confusionMatrix(predict(mLds2,subTest2) , subTest2$classe)$overall['Accuracy']
+Out13=1-confusionMatrix(predict(mGbm,subTest)  , subTest$classe)$overall['Accuracy']
+Out23=1-confusionMatrix(predict(mGbm2,subTest2) , subTest2$classe)$overall['Accuracy']
+OutErr=round( data.frame(Tree=c(Out11,Out21),Lds=c(Out12,Out22),GBM=c(Out13,Out23)) ,3)
+row.names(OutErr)=c("PCA","WithoutPCA")
+kable(OutErr)
+```
+
+
